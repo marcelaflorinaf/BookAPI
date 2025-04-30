@@ -1,5 +1,8 @@
-﻿using BookAPI.Models;
+﻿using BookAPI.Data;
+using BookAPI.Models;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+
 
 namespace BookAPI.Controllers;
 
@@ -7,24 +10,25 @@ namespace BookAPI.Controllers;
 [Route("api/[controller]")]
 public class BooksController : ControllerBase
 {
-    private static List<Book> books = new()
+    private readonly BookContext _context;
+
+    public BooksController(BookContext context)
     {
-        new Book { Id = 1, Title = "The Hobbit", Author = "J.R.R. Tolkien", Year = 1937 },
-        new Book { Id = 2, Title = "1984", Author = "George Orwell", Year = 1949 }
-    };
+        _context = context;
+    }
 
     // GET api/books
     [HttpGet]
     public ActionResult<IEnumerable<Book>> GetAll()
     {
-        return Ok(books);
+        return Ok(_context.Books.ToList());
     }
 
     // GET api/books/1
     [HttpGet("{id}")]
     public ActionResult<Book> GetById(int id)
     {
-        var book = books.FirstOrDefault(b => b.Id == id);
+        var book = _context.Books.Find(id);
         if (book is null)
             return NotFound();
         return Ok(book);
@@ -34,9 +38,16 @@ public class BooksController : ControllerBase
     [HttpPost]
     public ActionResult<Book> Create(Book book)
     {
-        book.Id = books.Max(b => b.Id) + 1;
-        books.Add(book);
-        //return 201 Created
+        try
+        {
+            _context.Books.Add(book);
+            _context.SaveChanges();
+        }
+        catch (DbUpdateException)
+        {
+            return BadRequest("Could not create the book.");
+        }
+
         return CreatedAtAction(nameof(GetById), new { id = book.Id }, book);
     }
 
@@ -44,22 +55,30 @@ public class BooksController : ControllerBase
     [HttpPut("{id}")]
     public IActionResult Update(int id, Book updatedBook)
     {
-        var book = books.FirstOrDefault(b => b.Id == id);
-        if (book is null)
-            return NotFound();
+        if (id != updatedBook.Id)
+            return BadRequest();
 
-        book.Title = updatedBook.Title;
-        book.Author = updatedBook.Author;
-        book.Year = updatedBook.Year;
+        //  _context.Entry(updatedBook).State = EntityState.Modified;
 
-        return NoContent(); // 204
+        try
+        {
+            _context.SaveChanges();
+        }
+        catch (Exception ex)
+        {
+            if (!_context.Books.Any(b => b.Id == id))
+                return NotFound();
+            throw;
+        }
+
+        return NoContent();
     }
 
     // PATCH api/books/1
     [HttpPatch("{id}")]
     public IActionResult Patch(int id, [FromBody] Dictionary<string, object> patchData)
     {
-        var book = books.FirstOrDefault(b => b.Id == id);
+        var book = _context.Books.FirstOrDefault(b => b.Id == id);
         if (book is null)
             return NotFound();
 
@@ -70,6 +89,7 @@ public class BooksController : ControllerBase
         if (patchData.ContainsKey("Year") && int.TryParse(patchData["Year"]?.ToString(), out var year))
             book.Year = year;
 
+        _context.SaveChanges();
         return Ok(book);
     }
 
@@ -77,11 +97,13 @@ public class BooksController : ControllerBase
     [HttpDelete("{id}")]
     public IActionResult Delete(int id)
     {
-        var book = books.FirstOrDefault(b => b.Id == id);
+        var book = _context.Books.Find(id);
         if (book is null)
             return NotFound();
 
-        books.Remove(book);
+        _context.Books.Remove(book);
+        _context.SaveChanges();
+
         return NoContent();
     }
 }
